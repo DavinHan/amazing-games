@@ -1,0 +1,47 @@
+# 操作系统与编辑器本地文件
+.DS_Store
+Thumbs.db
+.idea/
+.vs/
+*.swp
+*.swo
+*~
+
+# 本地配置与日志；只允许提交不含凭据的环境示例
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.log
+
+# 常见依赖、缓存与构建产物；按实际工具链继续补充
+node_modules/
+dist/
+build/
+coverage/
+.cache/
+.vite/
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Godot 导入缓存；保留源素材及 .import / .uid 元数据
+.godot/
+
+# Unity：仅匹配直接位于游戏根目录的生成目录
+/games/*/[Ll]ibrary/
+/games/*/[Tt]emp/
+/games/*/[Oo]bj/
+/games/*/[Ll]ogs/
+/games/*/[Uu]ser[Ss]ettings/
+
+# Unreal：仅匹配直接位于游戏根目录的生成目录
+/games/*/DerivedDataCache/
+/games/*/Intermediate/
+/games/*/Saved/
+
+# 不忽略锁文件、源素材、Unity .meta 或 Unreal Content/Config
