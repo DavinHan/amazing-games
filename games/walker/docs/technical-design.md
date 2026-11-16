@@ -1,6 +1,7 @@
 # Walker · Windows 技术设计
 
-版本：1.0（设计稿）  
+版本：1.1（设计稿）
+
 作者：Codex  
 日期：2026-11-16  
 适用范围：第一阶段 3D 行走交互小样  
@@ -119,6 +120,15 @@ flowchart LR
 | `UWalkerAnimInstance` / `ABP_Walker` | 从角色读取实际局部速度；管理 Idle/Locomotion 状态和步态参数 |
 | `UWalkerGameViewportClient` | 覆盖 `LostFocus` / `ReceivedFocus`，先维护输入门禁并调用引擎父类逻辑，再通知 Controller [R5] |
 | `L_WalkLab` | 平面、尺度参照、光照、出生点、碰撞边界；Game Default Map 与 Editor Startup Map 均指向此地图 |
+
+实施 W3 时，在 `Config/DefaultEngine.ini` 中注册自定义 ViewportClient；仅定义 C++ 派生类不会自动替换引擎默认类 [R5]：
+
+```ini
+[/Script/Engine.Engine]
+GameViewportClientClassName=/Script/Walker.WalkerGameViewportClient
+```
+
+完成编译和配置后重启编辑器，并重新打包 Development 程序。启动时检查实际 `GameViewport` 对象的类型，记录类路径，确认使用 `UWalkerGameViewportClient`；再验证失焦与恢复焦点确实进入该类回调。将类路径与焦点事件记录纳入 W3 验证证据，不能仅以配置文件存在或 PIE 中行为正常判定生效。Shipping 包沿用该注册配置，并重跑焦点行为验收。
 
 ### 4.3 工程目录与资产管理
 
@@ -272,7 +282,9 @@ rightSpeed   = Dot(worldVelocity, ActorRight)
 #### 5.3.3 相机与角色显示
 
 - 第三人称：SpringArm 连接胶囊上的稳定支点，不连接骨盆或头骨；后距调参初值 350 cm，支点高约 110 cm，FOV 初值 65°。按最终角色尺寸、窗口纵横比调整距离和俯角，验收时全身与鞋跟均在画面内。
-- 保留 SpringArm 碰撞检测，避免镜头穿边界；先关闭相机滞后，验收稳定后再评估是否有必要加入。
+- 保留 SpringArm 碰撞检测，避免镜头穿入遮挡物；先关闭相机滞后，验收稳定后再评估是否有必要加入。SpringArm 遇到遮挡会回缩，可能破坏全身构图，因此通过场景缓冲布局保证正常可行走区域内的镜头空间 [R13]。
+- 角色可行走边界与外侧围栏/墙体分离：内侧碰撞边界阻挡 Pawn、忽略 Camera；外侧实体保留 Camera 阻挡。两者间预留覆盖最终相机最大水平后距、探测球半径及安全余量的缓冲距离，地面覆盖该空间。缓冲值按最终角色尺寸、相机俯角和窗口纵横比标定，记录在 W2/W5 验收中。
+- 在四边和四个角落验证第三人称构图，并在这些位置从第一人称切回第三人称；全身与鞋跟仍需可见。若正常行走范围内发生回缩裁切，调整缓冲距离、遮挡物布局或构图参数后重新验收。
 - 第一人称：位于胶囊上的标定眼高，朝向与 Actor 一致，不继承步态头骨的上下晃动；只保留稳定平视镜头。
 - V 使用瞬时切换，不做穿过后脑的镜头插值。切换后正确激活唯一相机，并恢复相应的角色及附属 Mesh 可见性。
 - 第一人称隐藏人物时，角色 Mesh 仍使用 `AlwaysTickPoseAndRefreshBones` 持续更新动画和骨骼，避免切回时恢复旧姿态；单角色场景接受该开销 [R10]。
@@ -280,7 +292,7 @@ rightSpeed   = Dot(worldVelocity, ActorRight)
 
 #### 5.3.4 场景、灯光与性能
 
-建立约 30 m × 30 m 的平面和明显尺度线，加入围栏/低墙碰撞边界，保证镜头可用。预留至少 15 m 的无阻挡直线测试路线，按最终标定速度确认足以覆盖加速和 10 秒稳态行走。使用一个主要光源、环境补光和接地阴影；固定曝光，方便比较脚部与地面的关系。角色头发优先使用常规发片，材质先使用常规骨骼网格材质，不启用 Groom 或实时布料。
+建立约 30 m × 30 m 的平面和明显尺度线，按 5.3.3 分开设置内侧角色碰撞边界与外侧围栏/低墙，预留相机缓冲空间，保证镜头可用。可行走区域内保留至少 15 m 的无阻挡直线测试路线，按最终标定速度确认足以覆盖加速和 10 秒稳态行走；必要时扩大地面以同时满足路线与相机空间要求。使用一个主要光源、环境补光和接地阴影；固定曝光，方便比较脚部与地面的关系。角色头发优先使用常规发片，材质先使用常规骨骼网格材质，不启用 Groom 或实时布料。
 
 基线显式设置 DirectX 11、SM5、普通 Shadow Maps；关闭动态全局光照 Lumen、Lumen 反射、硬件光追、Nanite 和 Virtual Shadow Maps。该选择是本项目减少渲染变量的方案，并不声称所有 DX11 配置都不能使用软件 Lumen [R3]。渲染升级需基于 Windows 实测，不在第一阶段并行维护两套画质方案。
 
@@ -334,8 +346,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Windows 打包失败' }
 | 角色和接地 | Windows 第三人称录像与近景；站立、四向、四斜向、换向、起停逐项检查鞋跟/前掌、摆臂和穿插 | A1、A4 |
 | 输入 | 四方向、四斜向、相反键、三键/四键组合；原地与边界阻挡时检查动画是否匹配实际速度 | A2、A3、A4 |
 | 时间一致性 | 沿足够长且至少 15 m 的无阻挡直线路线，在 30/60/120 FPS 下经过加速段后持续行走 10 秒；发生边界碰撞的样本作废；稳态距离误差不超过 5% | A3、A9 |
-| 相机 | 静止及行走中独立按 V、长按 V 2 秒、连续切换 20 次；位置/朝向不重置，返回时动画连续 | A5、A6、A7 |
-| 失焦 | 按住 W/V 时 Alt+Tab、在窗口外松键、切回时仍按住、最小化和恢复；不得残留行走或意外切镜头 | A8 |
+| 相机 | 静止及行走中独立按 V、长按 V 2 秒、连续切换 20 次；位置/朝向不重置，返回时动画连续；移动到四边和四个角落，并在这些位置从第一人称切回第三人称，检查全身/鞋跟构图与镜头碰撞，记录缓冲距离和相机参数 | A5、A6、A7 |
+| 失焦 | Development 独立包先记录实际 ViewportClient 类路径，确认自定义类及焦点回调生效；Development/Shipping 均测试按住 W/V 时 Alt+Tab、在窗口外松键、切回时仍按住、最小化和恢复，不得残留行走或意外切镜头 | A8 |
 | 生命周期 | R 复位 10 次、退出再启动、窗口缩放；没有重复角色/绑定，始终恢复第三人称初始状态 | A10 |
 | 性能 | Development 包预热 30 秒后采样 3 分钟；按 3.2 记录均值/P95，保留 `stat unit` / Unreal Insights 采样证据 | A9 |
 | 可分发性 | 从无 UE 编辑器的 Windows 环境启动完整包；安装先决库后复测；Shipping 再跑 A1—A10 | A9、A10 |
@@ -348,10 +360,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Windows 打包失败' }
 | --- | --- | --- | --- |
 | W1a · Windows 工程与工具链 | 本设计 | 创建 UE C++ 工程、固定版本与 RHI；建立空地图并打 Development 包；记录环境 | 独立 Windows 包可启动，源码可重复编译；不以 PIE 代替打包 |
 | W1b · 角色与步态验证 | W1a、合法候选资源 | 导入目标角色/鞋；试验四基向与四斜向、标定高度与速度；必要时修片/补斜向；记录资源与授权 | 所有方向的适配路径得到录像证明；冻结资源集合、是否启用足部修正及初步性能数据 |
-| W2 · 场景与角色装配 | W1a、W1b | 完整平面、光照、参照物、边界与角色蓝图 | 站立体态、接地、构图符合 A1 |
-| W3 · 方向控制与生命周期 | W2 | 输入映射、CharacterMovement、失焦门禁、复位和退出 | A2、A3、A8、A10 的控制部分通过 |
+| W2 · 场景与角色装配 | W1a、W1b | 完整平面、光照、参照物、内侧角色边界、外侧围栏及相机缓冲区、角色蓝图 | 站立体态、接地、构图符合 A1；记录边界碰撞响应与相机缓冲布局 |
+| W3 · 方向控制与生命周期 | W2 | 输入映射、CharacterMovement、自定义 ViewportClient 注册、失焦门禁、复位和退出 | Development 独立包证实自定义类与回调生效；A2、A3、A8、A10 的控制部分通过 |
 | W4 · 动画集成 | W1b、W3 | 实际速度驱动、Blend Space、循环相位、起停和可选足部修正 | A4 覆盖四基向、四斜向、换向及边界阻挡 |
-| W5 · 相机与显示 | W2、W3、W4 | 双相机、单次按键切换、第一人称隐藏与持续动画更新 | A5—A7 通过，窗口缩放不裁掉脚部 |
+| W5 · 相机与显示 | W2、W3、W4 | 双相机、单次按键切换、第一人称隐藏与持续动画更新；标定相机缓冲距离 | A5—A7 通过，窗口缩放、四边/四角及第一人称切回时均保持全身与鞋跟可见 |
 | W6 · Windows 集成验收 | W3—W5 | Development/Shipping 打包、试验机性能、无编辑器环境启动；更新 README 与验收记录 | A1—A10 有真实结果、运行步骤与已知限制 |
 
 W1b 是美术投入的关口：如果目标体态和鞋型上的动作达不到要求，先更换或修正资源，不继续堆场景。W1a 的空场景可启动只证明工具链可用，不代表角色方案已通过。
@@ -365,6 +377,7 @@ W1b 是美术投入的关口：如果目标体态和鞋型上的动作达不到�
 | 版本 | 日期 | 作者 | 变更 |
 | --- | --- | --- | --- |
 | 1.0 | 2026-11-16 | Codex | 按 Windows 最终平台及用户提出的 UE5 方向建立第一阶段技术设计；所有运行验证待执行 |
+| 1.1 | 2026-11-16 | Codex | 补充自定义 ViewportClient 注册与独立包验证、场景相机缓冲布局及边界视角验收；所有运行验证仍待执行 |
 
 ### 7.2 参考资料
 
@@ -375,7 +388,7 @@ W1b 是美术投入的关口：如果目标体态和鞋型上的动作达不到�
 - R2：[UE 5.8 发行说明：Platform SDK Upgrades](https://dev.epicgames.com/documentation/unreal-engine/unreal-engine-5-8-release-notes?lang=en-US)、[Visual Studio 环境设置](https://dev.epicgames.com/documentation/en-us/unreal-engine/setting-up-visual-studio-development-environment-for-cplusplus-projects-in-unreal-engine)、[硬件与软件规格](https://dev.epicgames.com/documentation/en-us/unreal-engine/hardware-and-software-specifications-for-unreal-engine)。
 - R3：[桌面渲染路径支持情况](https://dev.epicgames.com/documentation/unreal-engine/supported-features-by-rendering-path-for-desktop-with-unreal-engine)。
 - R4：[Enhanced Input](https://dev.epicgames.com/documentation/en-us/unreal-engine/enhanced-input-in-unreal-engine)、[输入累加策略](https://dev.epicgames.com/documentation/unreal-engine/API/Plugins/EnhancedInput/EInputActionAccumulationBehavior)。
-- R5：[UGameViewportClient](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UGameViewportClient?lang=en-US)、[Enhanced Input 输入刷新行为](https://dev.epicgames.com/documentation/unreal-engine/API/Plugins/EnhancedInput/UEnhancedInputDeveloperSettings?lang=en-US)。
+- R5：[UGameViewportClient](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UGameViewportClient?lang=en-US)、[UEngine 的 GameViewportClientClassName 配置](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UEngine?lang=en-US)、[Enhanced Input 输入刷新行为](https://dev.epicgames.com/documentation/unreal-engine/API/Plugins/EnhancedInput/UEnhancedInputDeveloperSettings?lang=en-US)。
 - R6：[IK Rig 动画重定向](https://dev.epicgames.com/documentation/en-us/unreal-engine/ik-rig-animation-retargeting-in-unreal-engine)。
 - R7：[动画同步组与脚落地标记](https://dev.epicgames.com/documentation/en-us/unreal-engine/animation-sync-groups-in-unreal-engine)。
 - R8：[Root Motion](https://dev.epicgames.com/documentation/unreal-engine/root-motion-in-unreal-engine?lang=en-US)。
@@ -383,3 +396,4 @@ W1b 是美术投入的关口：如果目标体态和鞋型上的动作达不到�
 - R10：[骨骼网格可见性与动画 Tick 选项](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/EVisibilityBasedAnimTickOption?application_version=5.8)。
 - R11：[工程打包流程](https://dev.epicgames.com/documentation/en-us/unreal-engine/packaging-your-project)。
 - R12：[Microsoft Win32 GetAsyncKeyState](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getasynckeystate)。
+- R13：[USpringArmComponent 碰撞回缩与探测参数](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/USpringArmComponent)。
